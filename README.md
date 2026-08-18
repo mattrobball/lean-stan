@@ -2,8 +2,9 @@
 
 Emit a **stan**dalone Lean file from a compiled project.
 
-Given a target declaration, `lean-stan` walks everything that declaration's
-*type* transitively depends on, and writes those project-local declarations
+Given a target declaration, `lean-stan` collects everything that declaration
+transitively depends on -- its type, and the bodies of any non-theorem
+declarations that type reaches -- and writes those project-local declarations
 into a single file with proofs replaced by `sorry`. The result imports only
 your external dependencies, compiles on its own, and is the statement surface
 a reader has to trust in order to accept the target's statement.
@@ -19,11 +20,17 @@ are the same statement.
 [[require]]
 name = "stan"
 git = "https://github.com/mattrobball/lean-stan"
-rev = "main"
+rev = "v0.1.0"
 ```
 
-No further dependencies -- `lean-stan` needs Lean core and nothing else, so it
-builds in seconds and tracks whatever toolchain your project uses.
+Pin a tag or a commit rather than `main`: the whole point of the emitted file
+is that regenerating it gives byte-identical output, and that only holds if the
+generator is pinned too.
+
+`lean-stan` has no dependencies beyond Lean core, so it adds nothing to your
+build graph. Lake builds it with your project's toolchain, not the one in this
+repository's `lean-toolchain` -- that file only fixes the version used when
+developing `lean-stan` itself.
 
 ## Usage
 
@@ -42,43 +49,65 @@ Target module: MyProject.Main
 Imported modules: 6043
 TFB: 57 declarations
 Emitting from 12 modules
-  MyProject/PostnikovTower/Defs.lean (2 decls)
-  MyProject/Slicing/Defs.lean (7 decls)
+  MyProject/Widgets.lean (2 TFB decls)
+  MyProject/Main.lean (1 TFB decls)
   ...
 Wrote Challenge.lean
 ```
 
-The output reproduces your project's elaboration environment -- module header,
-options, `open`s, `variable`s, per-module `universe` declarations -- then each
-declaration in dependency order:
+## What the output looks like
+
+Every example below is invented -- names, modules and theorem alike. What is
+faithful is the *shape*: the emitted file reproduces your project's elaboration
+environment, because a skeleton that elaborates differently states something
+different from what you proved.
+
+The file opens with the module header, the external imports, and a generated
+summary:
 
 ```lean
 module
 
-public import Mathlib.CategoryTheory.Triangulated.Pretriangulated
-...
+public import Mathlib.Algebra.Group.Basic
+public import Mathlib.Order.Basic
 
-@[expose] public section
-set_option backward.proofsInPublic true
+/-! # Trusted Formalization Base
+MyProject — `MyProject.Main.riemann_hyp_categorified_fake_true`
+Auto-generated — all proofs replaced with `sorry`.
+57 declarations in dependency order.
+-/
+```
 
--- ═══ PostnikovTower.Defs ═══
+Then one block per source module. Each is wrapped in its own `section`, so its
+options, `open`s, `universe` declarations and `variable`s cannot leak into the
+next block:
+
+```lean
+-- ═══ Main ═══
 
 section
+@[expose] public section
+set_option backward.privateInPublic true
+set_option backward.privateInPublic.warn false
+set_option backward.proofsInPublic true
 noncomputable section
-open CategoryTheory CategoryTheory.Limits
-namespace MyProject
+open Widgets
 universe v u
-variable (C : Type u) [Category.{v} C]
+namespace MyProject
+variable (C : Type u) [Widgetable.{v} C]
 
-structure PostnikovTower (E : C) where
-  ...
+theorem riemann_hyp_categorified_fake_true (E : C) : IsFake (widget C E) := sorry
 
-theorem someSupportingLemma (E : C) : P E := sorry
+end MyProject
+end
 end
 end
 ```
 
-Note the `sorry`s: any declaration the skeleton leaves open must be listed in
+Four `end`s close four openers: the wrapper `section`, the module's
+`@[expose] public section`, its `noncomputable section`, and the `namespace`.
+
+Note the `sorry`: any declaration the skeleton leaves open must be listed in
 Comparator's `theorem_names`, or Comparator will compare your real proof
 against the skeleton's `sorryAx` and reject it.
 
@@ -98,9 +127,9 @@ environment, for when the target does not live under a root's own root module.
 
 ## Why the output is trustworthy
 
-The emitted file has to *elaborate the way your project does*. If it does not,
-it states something subtly different from what you proved, and it will do so
-while compiling cleanly. Two rules keep that from happening:
+If the skeleton does not elaborate the way your project does, it states
+something subtly different from what you proved -- and it does so while
+compiling cleanly. Two rules keep that from happening:
 
 **Commands are dropped by denylist, never kept by allowlist.** The emitter asks
 one question per command -- does it declare something? -- drops non-target
