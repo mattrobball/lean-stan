@@ -95,7 +95,12 @@ def compareConst (projectEnv : Environment) (n : Name) (emitted : ConstantInfo) 
 and compare every declaration it produces against `projectEnv`.
 
 Returns `true` if the emitted file faithfully reproduces the project. -/
-def verifyEmitted (projectEnv : Environment) (outputPath : System.FilePath) : IO Bool := do
+unsafe def verifyEmitted (projectEnv : Environment) (outputPath : System.FilePath) :
+    IO Bool := do
+  -- `processHeader` imports with `loadExts := true`, which requires this to
+  -- have been enabled in the current process.
+  initSearchPath (← findSysroot)
+  enableInitializersExecution
   let source ← IO.FS.readFile outputPath
   let inputCtx := Parser.mkInputContext source outputPath.toString
   let (header, parserState, messages) ← Parser.parseHeader inputCtx
