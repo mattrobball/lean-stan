@@ -1,0 +1,27 @@
+name = "stan"
+version = "0.1.0"
+keywords = ["formalization", "audit", "standalone"]
+description = "Emit a standalone Lean file containing a declaration's trusted formalization base"
+
+defaultTargets = ["Stan", "stan_file", "stan_boundary"]
+
+# Deliberately no dependencies. Every module here needs Lean core and nothing
+# else, which is the point of this package: a project that wants a standalone
+# trusted-base file should not have to build verso, subverso, MD4Lean and
+# friends to get one.
+#
+# Keep it that way. If something here starts needing verso, it belongs in
+# `lean-informal` instead.
+
+[[lean_lib]]
+name = "Stan"
+
+[[lean_exe]]
+name = "stan_file"
+root = "StanFile"
+supportInterpreter = true
+
+[[lean_exe]]
+name = "stan_boundary"
+root = "StanBoundary"
+supportInterpreter = true
