@@ -50,6 +50,33 @@ partial def eraseBinderNames : Expr → Expr
   | .proj s i e       => .proj s i (eraseBinderNames e)
   | e                 => e
 
+
+/-- Auto-generated children of a declaration (`foo._proof_3`, `foo._aux_4`) are
+numbered by how many auxiliaries the enclosing module generated before them, so
+the same definition gets different indices in the project and in a file that
+declares fewer things ahead of it. Renumber them by order of first occurrence
+so that structurally identical values compare equal. -/
+partial def canonAux (owner : Name) : Expr → StateM (Std.HashMap Name Nat) Expr
+  | .const n us => do
+      if owner.isPrefixOf n && n != owner then
+        let m ← get
+        let idx ← match m[n]? with
+          | some i => pure i
+          | none => let i := m.size; modify (·.insert n i); pure i
+        return .const (owner ++ Name.mkSimple s!"_canon{idx}") us
+      else return .const n us
+  | .app f a => return .app (← canonAux owner f) (← canonAux owner a)
+  | .lam n d b bi => return .lam n (← canonAux owner d) (← canonAux owner b) bi
+  | .forallE n d b bi => return .forallE n (← canonAux owner d) (← canonAux owner b) bi
+  | .letE n t v b nd => return .letE n (← canonAux owner t) (← canonAux owner v) (← canonAux owner b) nd
+  | .mdata _ e => canonAux owner e
+  | .proj s i e => return .proj s i (← canonAux owner e)
+  | e => return e
+
+/-- Normal form for comparison: alpha-equivalent, with auxiliary numbering canonical. -/
+def normal (owner : Name) (e : Expr) : Expr :=
+  (canonAux owner (eraseBinderNames e)).run' {}
+
 /-- What differed, for one declaration. -/
 structure Mismatch where
   name    : Name
@@ -71,8 +98,8 @@ def compareConst (projectEnv : Environment) (n : Name) (emitted : ConstantInfo) 
     hard := hard.push { name := n, field := "levelParams"
                       , project := toString proj.levelParams
                       , emitted := toString emitted.levelParams }
-  let pt := eraseBinderNames proj.type
-  let et := eraseBinderNames emitted.type
+  let pt := normal n proj.type
+  let et := normal n emitted.type
   if pt != et then
     hard := hard.push { name := n, field := "type"
                       , project := toString pt, emitted := toString et }
@@ -80,8 +107,8 @@ def compareConst (projectEnv : Environment) (n : Name) (emitted : ConstantInfo) 
   -- emitted one is `sorry` by design.
   match proj, emitted with
   | .defnInfo pd, .defnInfo ed =>
-    let pv := eraseBinderNames pd.value
-    let ev := eraseBinderNames ed.value
+    let pv := normal n pd.value
+    let ev := normal n ed.value
     if pv != ev then
       hard := hard.push { name := n, field := "value"
                         , project := toString pv, emitted := toString ev }
